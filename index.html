@@ -1,0 +1,264 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Postmortem Tarjeta regalo</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500;600;700&display=swap"><style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-weight: 300; font-size: 16px; line-height: 1.6;
+    color: #1a1a1a; background: #0d0d0d; letter-spacing: 0.015em;
+    overflow: hidden;
+  }
+
+  /* Shared components */
+  .pipeline { position: relative; display: grid; gap: 20px; margin: 28px 0; }
+  .pipeline-3 { grid-template-columns: repeat(3,1fr); }
+  .pipeline-4 { grid-template-columns: repeat(4,1fr); }
+  .pipeline-5 { grid-template-columns: repeat(5,1fr); }
+  .pipeline-6 { grid-template-columns: repeat(6,1fr); }
+  .pipeline-line { position: absolute; top: 28px; left: 10%; right: 10%; height: 2px; background: #eee; }
+  .pipeline-step { text-align: center; position: relative; z-index: 1; }
+  .pipeline-circle {
+    width: 56px; height: 56px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 8px rgba(58,107,234,0.25);
+  }
+  .pipeline-circle.blue { background: #3a6bea; }
+  .pipeline-circle.dark { background: #1a1a1a; box-shadow: none; }
+  .pipeline-circle.green { background: #38a169; box-shadow: 0 2px 8px rgba(56,161,105,0.25); }
+  .pipeline-circle svg { width: 22px; height: 22px; fill: #fff; }
+  .pipeline-label { font-size: 11px; font-weight: 400; color: #1a1a1a; margin-top: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .pipeline-sub { font-size: 11px; font-weight: 300; color: #888; margin-top: 2px; }
+
+  .insights-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 24px 0; }
+  .insight-card { padding: 20px; border: 1px solid #eee; border-radius: 8px; display: flex; gap: 16px; align-items: flex-start; }
+  .insight-icon { width: 36px; height: 36px; border-radius: 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+  .insight-icon.blue { background: rgba(58,107,234,0.1); color: #3a6bea; }
+  .insight-icon.green { background: rgba(56,161,105,0.1); color: #38a169; }
+  .insight-icon.orange { background: rgba(237,137,54,0.1); color: #ed8936; }
+  .insight-icon.gray { background: rgba(113,128,150,0.1); color: #718096; }
+  .insight-icon svg { width: 18px; height: 18px; fill: currentColor; }
+  .insight-title { font-size: 13px; font-weight: 500; color: #1a1a1a; margin-bottom: 4px; }
+  .insight-text { font-size: 12px; font-weight: 300; color: #666; line-height: 1.5; }
+
+  .action-cards { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; margin: 24px 0; }
+  .action-card { padding: 20px; border: 1px solid #eee; border-radius: 8px; }
+  .action-icon { width: 36px; height: 36px; border-radius: 8px; background: rgba(58,107,234,0.08); display: flex; align-items: center; justify-content: center; margin-bottom: 12px; }
+  .action-icon svg { width: 18px; height: 18px; fill: #3a6bea; }
+  .action-title { font-size: 13px; font-weight: 500; color: #1a1a1a; margin-bottom: 6px; }
+  .action-text { font-size: 12px; font-weight: 300; color: #666; line-height: 1.5; }
+
+  .spec-cards { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; margin: 24px 0; }
+  .spec-card { padding: 20px; border: 1px solid #eee; border-radius: 8px; position: relative; overflow: hidden; }
+  .spec-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: #3a6bea; }
+  .spec-card.red::before { background: #e53e3e; }
+  .spec-card.orange::before { background: #ed8936; }
+  .spec-card.yellow::before { background: #d69e2e; }
+  .spec-card.gray::before { background: #718096; }
+  .spec-title { font-size: 11px; font-weight: 500; color: #1a1a1a; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .spec-value { font-size: 22px; font-weight: 100; color: #3a6bea; line-height: 1; margin-bottom: 6px; }
+  .spec-card.red .spec-value { color: #e53e3e; }
+  .spec-card.orange .spec-value { color: #ed8936; }
+  .spec-card.yellow .spec-value { color: #d69e2e; }
+  .spec-card.gray .spec-value { color: #718096; }
+  .spec-desc { font-size: 11px; font-weight: 300; color: #888; line-height: 1.5; }
+  .spec-examples { margin-top: 8px; }
+  .spec-examples li { font-size: 10px; font-weight: 300; color: #999; line-height: 1.6; list-style: none; padding-left: 10px; position: relative; }
+  .spec-examples li::before { content: '·'; position: absolute; left: 0; color: #bbb; }
+
+  .decision-table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 13px; }
+  .decision-table th {
+    background: #1a1a1a; color: #fff; font-weight: 400; font-size: 11px;
+    letter-spacing: 0.5px; text-transform: uppercase; padding: 10px 14px; text-align: left;
+  }
+  .decision-table td { padding: 10px 14px; border-bottom: 1px solid #eee; color: #444; font-weight: 300; }
+  .decision-table tr:last-child td { border-bottom: none; }
+  .decision-table tr:hover td { background: rgba(58,107,234,0.03); }
+  .badge {
+    display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 10px; font-weight: 500;
+    letter-spacing: 0.5px; text-transform: uppercase;
+  }
+  .badge.p1 { background: rgba(229,62,62,0.1); color: #e53e3e; }
+  .badge.p2 { background: rgba(237,137,54,0.1); color: #ed8936; }
+  .badge.p3 { background: rgba(58,107,234,0.1); color: #3a6bea; }
+  .badge.p4 { background: rgba(113,128,150,0.1); color: #718096; }
+  .badge.yes { background: rgba(56,161,105,0.1); color: #38a169; }
+  .badge.no  { background: rgba(245,101,101,0.1); color: #e53e3e; }
+
+  .compare-table { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 24px 0; }
+  .compare-col { border: 1px solid #eee; border-radius: 8px; overflow: hidden; }
+  .compare-header { padding: 12px 16px; font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 1px; }
+  .compare-header.blue { background: rgba(58,107,234,0.08); color: #3a6bea; }
+  .compare-header.red  { background: rgba(229,62,62,0.06); color: #e53e3e; }
+  .compare-item { padding: 10px 16px; font-size: 12px; font-weight: 300; color: #444; border-top: 1px solid #eee; display: flex; align-items: center; gap: 8px; }
+  .compare-item svg { width: 14px; height: 14px; flex-shrink: 0; }
+  .compare-item.pro svg { fill: #38a169; }
+  .compare-item.con svg { fill: #e53e3e; }
+
+  .phase-rows { margin: 24px 0; display: flex; flex-direction: column; gap: 10px; }
+  .phase-row { display: flex; align-items: center; gap: 16px; padding: 12px 16px; border: 1px solid #eee; border-radius: 8px; }
+  .phase-badge {
+    font-size: 10px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
+    padding: 3px 10px; border-radius: 4px; flex-shrink: 0; min-width: 48px; text-align: center;
+  }
+  .phase-badge.a { background: rgba(58,107,234,0.1); color: #3a6bea; }
+  .phase-badge.b { background: rgba(56,161,105,0.1); color: #38a169; }
+  .phase-badge.c { background: rgba(237,137,54,0.1); color: #ed8936; }
+  .phase-badge.d { background: rgba(113,128,150,0.1); color: #718096; }
+  .phase-badge.e { background: rgba(229,62,62,0.1); color: #e53e3e; }
+  .phase-badge.f { background: rgba(159,122,234,0.1); color: #805ad5; }
+  .phase-badge.g { background: rgba(44,122,123,0.1); color: #2c7a7b; }
+  .phase-badge.num { background: rgba(58,107,234,0.08); color: #3a6bea; min-width: 28px; }
+  .phase-title { font-size: 13px; font-weight: 500; color: #1a1a1a; min-width: 160px; }
+  .phase-desc { font-size: 12px; font-weight: 300; color: #666; }
+
+  .rule-block {
+    border-left: 3px solid #3a6bea; padding: 14px 20px; margin: 12px 0;
+    background: rgba(58,107,234,0.04); border-radius: 0 6px 6px 0;
+  }
+  .rule-block p { margin-bottom: 0; color: #333; font-weight: 300; font-size: 13px; }
+  .rule-block strong { font-weight: 500; color: #1a1a1a; }
+
+  /* Presentation overlay */
+  .pres-overlay {
+    display: flex; position: fixed; inset: 0;
+    background: #0d0d0d; z-index: 9999;
+    flex-direction: column;
+  }
+
+  .pres-nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 24px; background: rgba(255,255,255,0.04);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    flex-shrink: 0;
+  }
+  .pres-nav-left { display: flex; align-items: center; gap: 12px; }
+  .pres-nav-title { font-size: 12px; font-weight: 300; color: rgba(255,255,255,0.5); letter-spacing: 0.05em; }
+  .pres-nav-sections { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pres-nav-sec {
+    font-size: 10px; font-weight: 400; padding: 4px 12px; border-radius: 20px;
+    letter-spacing: 0.5px; cursor: pointer; transition: background 0.2s, color 0.2s;
+    background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.45);
+    border: 1px solid transparent;
+  }
+  .pres-nav-sec.active { background: rgba(58,107,234,0.2); color: #7da4ff; border-color: rgba(58,107,234,0.3); }
+  .pres-nav-right { display: flex; align-items: center; gap: 8px; }
+  .pres-counter { font-size: 11px; color: rgba(255,255,255,0.35); font-weight: 300; padding: 0 4px; }
+  .pres-nav-btn {
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+    color: rgba(255,255,255,0.7); border-radius: 6px; cursor: pointer;
+    padding: 6px 10px; font-size: 12px; display: flex; align-items: center;
+    transition: background 0.2s, color 0.2s;
+  }
+  .pres-nav-btn:hover:not(:disabled) { background: rgba(255,255,255,0.12); color: #fff; }
+  .pres-nav-btn:disabled { opacity: 0.25; cursor: not-allowed; }
+  .pres-nav-btn svg { width: 14px; height: 14px; fill: currentColor; }
+
+  .pres-slide-container { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 8px; }
+  .pres-slide { display: none; width: 100%; max-width: min(calc((100vh - 65px) * 16/9), 1600px); max-height: calc(100vh - 65px); aspect-ratio: 16/9; background: #fff; border-radius: 4px; overflow: hidden; position: relative; }
+  .pres-slide.active { display: flex; flex-direction: column; }
+
+  .slide-header { padding: 28px 44px 0; display: flex; justify-content: space-between; align-items: flex-start; flex-shrink: 0; }
+  .slide-label { font-size: 9px; font-weight: 300; color: #3a6bea; letter-spacing: 2.5px; text-transform: uppercase; }
+  .slide-num { font-size: 9px; font-weight: 300; color: #ccc; letter-spacing: 1px; }
+  .slide-body { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 16px 44px 24px; }
+  .slide-h1 { font-size: clamp(20px,3.5vw,36px); font-weight: 100; color: #1a1a1a; line-height: 1.2; margin-bottom: 12px; }
+  .slide-h2 { font-size: clamp(14px,2vw,20px); font-weight: 100; color: #1a1a1a; margin-bottom: 14px; }
+  .slide-p { font-size: clamp(9px,1.1vw,12px); font-weight: 300; color: #666; line-height: 1.65; }
+  .slide-footer {
+    padding: 10px 44px; border-top: 1px solid #f0f0f0; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .slide-footer-brand { font-size: 9px; font-weight: 300; color: #ccc; letter-spacing: 1.5px; text-transform: uppercase; }
+  .slide-footer-date  { font-size: 9px; font-weight: 300; color: #ccc; }
+
+  /* Cover */
+  .slide-cover { background: #1a1a1a; color: #fff; align-items: center; justify-content: center; text-align: center; }
+  .slide-cover .slide-header { position: absolute; top: 0; left: 0; right: 0; padding: 20px 32px; }
+  .slide-cover .slide-label { color: rgba(255,255,255,0.4); }
+  .slide-cover .slide-num   { color: rgba(255,255,255,0.2); }
+  .slide-cover .slide-body  { align-items: center; justify-content: center; padding: 40px 60px; position: relative; z-index: 1; }
+  .slide-cover .slide-h1    { font-size: clamp(22px,3.8vw,42px); color: #fff; font-weight: 100; }
+  .slide-cover .slide-p     { color: rgba(255,255,255,0.55); }
+  .slide-cover .slide-footer-brand, .slide-cover .slide-footer-date { color: rgba(255,255,255,0.3); }
+  .cover-accent { width: 40px; height: 2px; background: #3a6bea; margin: 0 auto 20px; }
+  .cover-badge {
+    display: inline-block; padding: 4px 16px; border-radius: 20px;
+    font-size: 9px; font-weight: 400; letter-spacing: 2px; text-transform: uppercase;
+    background: rgba(58,107,234,0.15); color: #7da4ff;
+    border: 1px solid rgba(58,107,234,0.25); margin-bottom: 20px;
+  }
+
+  /* Section intro */
+  .slide-section-intro { background: #f8f9fc; }
+  .slide-section-intro .slide-body { flex-direction: row; align-items: center; gap: 44px; }
+  .section-num { font-size: clamp(60px,9vw,110px); font-weight: 100; color: rgba(58,107,234,0.12); line-height: 1; flex-shrink: 0; }
+  .section-content .section-line { width: 32px; height: 2px; background: #3a6bea; margin-bottom: 12px; }
+
+  /* Closing */
+  .slide-closing { background: linear-gradient(135deg,#1a1a1a 0%,#0d1a3a 100%); color: #fff; align-items: center; justify-content: center; text-align: center; }
+  .slide-closing .slide-body { align-items: center; }
+  .slide-closing .slide-h1 { color: #fff; font-size: clamp(20px,3.5vw,36px); }
+  .slide-closing .slide-p  { color: rgba(255,255,255,0.5); }
+  .closing-divider { width: 40px; height: 1px; background: rgba(58,107,234,0.5); margin: 16px auto; }
+  .slide-closing .slide-footer { border-top-color: rgba(255,255,255,0.08); position: absolute; bottom: 0; left: 0; right: 0; }
+  .slide-closing .slide-footer-brand, .slide-closing .slide-footer-date { color: rgba(255,255,255,0.25); }
+
+  /* Slide-specific overrides for density */
+  .pres-slide .phase-rows { margin: 10px 0; gap: 7px; }
+  .pres-slide .phase-row  { padding: 9px 14px; }
+  .pres-slide .phase-title { font-size: clamp(9px,1.1vw,12px); min-width: 120px; }
+  .pres-slide .phase-desc  { font-size: clamp(8px,0.95vw,11px); }
+  .pres-slide .phase-badge { font-size: 9px; padding: 2px 8px; }
+  .pres-slide .action-cards { margin: 10px 0; gap: 12px; }
+  .pres-slide .action-card  { padding: 14px 16px; }
+  .pres-slide .action-title { font-size: clamp(9px,1.05vw,12px); }
+  .pres-slide .action-text  { font-size: clamp(8px,0.9vw,10px); }
+  .pres-slide .action-icon  { width: 28px; height: 28px; margin-bottom: 8px; }
+  .pres-slide .action-icon svg { width: 14px; height: 14px; }
+  .pres-slide .insights-grid { margin: 10px 0; gap: 10px; }
+  .pres-slide .insight-card  { padding: 14px; gap: 12px; }
+  .pres-slide .insight-title { font-size: clamp(9px,1.05vw,12px); }
+  .pres-slide .insight-text  { font-size: clamp(8px,0.9vw,11px); }
+  .pres-slide .insight-icon  { width: 28px; height: 28px; }
+  .pres-slide .insight-icon svg { width: 14px; height: 14px; }
+  .pres-slide .compare-table { margin: 10px 0; gap: 14px; align-items: start; }
+  .pres-slide .compare-header { padding: 10px 14px; font-size: 11px; }
+  .pres-slide .compare-item  { padding: 8px 14px; font-size: clamp(8px,0.95vw,11px); }
+  .pres-slide .spec-cards    { margin: 10px 0; gap: 12px; }
+  .pres-slide .spec-card     { padding: 14px 16px; }
+  .pres-slide .spec-title    { font-size: 10px; }
+  .pres-slide .spec-value    { font-size: 18px; margin-bottom: 4px; }
+  .pres-slide .spec-desc     { font-size: 10px; }
+  .pres-slide .spec-examples li { font-size: 9px; }
+  .pres-slide .rule-block    { padding: 10px 16px; margin: 8px 0; }
+  .pres-slide .rule-block p  { font-size: clamp(8px,0.95vw,11px); }
+  .pres-slide .pipeline      { margin: 16px 0; }
+  .pres-slide .pipeline-circle { width: 44px; height: 44px; }
+  .pres-slide .pipeline-circle svg { width: 18px; height: 18px; }
+  .pres-slide .pipeline-line { top: 22px; }
+  .pres-slide .pipeline-label { font-size: 9px; margin-top: 8px; }
+  .pres-slide .pipeline-sub  { font-size: 9px; }
+  .pres-slide .decision-table { margin: 10px 0; }
+  .pres-slide .decision-table th { font-size: 10px; padding: 8px 12px; }
+  .pres-slide .decision-table td { font-size: clamp(9px,1vw,11px); padding: 7px 12px; }
+  .phase-badge.dev { background: rgba(26,26,26,0.08); color: #333333; }
+  .flujo-rows { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+  .flujo-row  { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border: 1px solid #eee; border-radius: 6px; }
+  .flujo-row .phase-badge { font-size: 8px; padding: 2px 7px; min-width: 36px; }
+  .flujo-row .phase-desc  { font-size: clamp(8px,0.9vw,10px); font-weight: 300; color: #555; }
+  .hard-stop { border-left: 3px solid #e53e3e; padding: 7px 12px; background: rgba(229,62,62,0.04); border-radius: 0 4px 4px 0; margin-top: 5px; }
+  .hard-stop p { font-size: clamp(7px,0.85vw,10px); color: #333; font-weight: 300; margin: 0; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .pres-slide .slide-footer { display: none !important; }
+
+.pres-slide .compare-item{align-items:flex-start}.cell-tag{font-size:9px;color:#3a6bea;letter-spacing:1px;text-transform:uppercase;font-weight:500}
+</style></head><body>
+<div class="pres-overlay active"><nav class="pres-nav"><div class="pres-nav-left"><span class="pres-nav-title">Postmortem Tarjeta regalo</span><div class="pres-nav-sections"><span class="pres-nav-sec" onclick="presJump(0)">Portada</span><span class="pres-nav-sec" onclick="presJump(1)">Resumen</span><span class="pres-nav-sec" onclick="presJump(2)">Qué salió bien</span><span class="pres-nav-sec" onclick="presJump(3)">Qué salió mal</span><span class="pres-nav-sec" onclick="presJump(4)">Plan de acción</span><span class="pres-nav-sec" onclick="presJump(5)">Aprendizajes</span><span class="pres-nav-sec" onclick="presJump(6)">Cierre</span></div></div>
+<div class="pres-nav-right"><button class="pres-nav-btn" id="presBtnPrev" onclick="presNav(-1)"><svg viewBox="0 0 24 24"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6z"/></svg></button><span class="pres-counter" id="presCounter"></span><button class="pres-nav-btn" id="presBtnNext" onclick="presNav(1)"><svg viewBox="0 0 24 24"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg></button><button class="pres-nav-btn" onclick="presToggleFullscreen()"><svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg></button></div></nav>
+<div class="pres-slide-container"><div class="pres-slide slide-cover active" data-section="0"><div class="slide-header"><span class="slide-label">Zara · Tarjeta regalo · Postmortem</span><span class="slide-num">01</span></div><div class="slide-body"><div class="cover-badge">Postmortem</div><div class="cover-accent"></div><h1 class="slide-h1">Postmortem<br>Tarjeta regalo (giftcard-exp)</h1><p class="slide-p" style="margin-top:16px;">Experiencia bundle unificada para Web y Apps<br>en 64 mercados</p></div></div><div class="pres-slide " data-section="1"><div class="slide-header"><span class="slide-label">01 · Resumen ejecutivo</span><span class="slide-num">02</span></div><div class="slide-body"><h2 class="slide-h2">Resumen ejecutivo</h2><div class="phase-rows"><div class="phase-row"><span class="phase-badge a">01</span><div class="phase-title">Qué</div><div class="phase-desc">Experiencia bundle unificada (giftcard-exp) en Zara Web, BFF y apps vía ReCom en 64 mercados</div></div><div class="phase-row"><span class="phase-badge a">02</span><div class="phase-title">Rollout</div><div class="phase-desc">Progresivo entre mayo y junio de 2026</div></div><div class="phase-row"><span class="phase-badge a">03</span><div class="phase-title">Veredicto</div><div class="phase-desc">PRO en Mayo 2026, 4 meses tras el objetivo de Diciembre 2025</div></div><div class="phase-row"><span class="phase-badge a">04</span><div class="phase-title">Idea central</div><div class="phase-desc">Hacer un único componente para web y app a través de un modelo servicio</div></div></div></div></div><div class="pres-slide " data-section="2"><div class="slide-header"><span class="slide-label">02 · Qué salió bien</span><span class="slide-num">03</span></div><div class="slide-body"><h2 class="slide-h2">Qué salió bien</h2><div class="insights-grid"><div class="insight-card"><div class="insight-icon green"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div><div><div class="insight-title">Un solo componente</div><div class="insight-text">GiftCardDetailView para web y apps</div></div></div><div class="insight-card"><div class="insight-icon green"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div><div><div class="insight-title">Una sola UX</div><div class="insight-text">4 artefactos: paquete fuente (giftcard-exp) + Zara Web + BFF + ReCom (apps)</div></div></div><div class="insight-card"><div class="insight-icon green"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div><div><div class="insight-title">Contrato claro</div><div class="insight-text">onAddToCart y onAnalyticsEvent, sin HTTP en el paquete</div></div></div><div class="insight-card"><div class="insight-icon green"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div><div><div class="insight-title">Ownership por capa</div><div class="insight-text">Regla de revisión cross-repo</div></div></div><div class="insight-card"><div class="insight-icon green"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div><div><div class="insight-title">Rollout progresivo</div><div class="insight-text">Feature flags (GrowthBook) por mercado</div></div></div><div class="insight-card"><div class="insight-icon green"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div><div><div class="insight-title">Activación verificable</div><div class="insight-text">Por flag, con procedimiento para comprobar el bundle en un mercado sin herramientas internas. Mismo ID y referencia en todos los mercados</div></div></div><div class="insight-card"><div class="insight-icon green"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div><div><div class="insight-title">Conocimiento documentado</div><div class="insight-text">Decision log y retrospectivas</div></div></div></div></div></div><div class="pres-slide " data-section="3"><div class="slide-header"><span class="slide-label">03 · Qué salió mal</span><span class="slide-num">04</span></div><div class="slide-body"><h2 class="slide-h2">Qué salió mal · 4 meses de retraso debido a</h2><table class="decision-table"><tr><th>Qué salió mal</th><th>Causa</th><th>Cronología e impacto</th></tr><tr><td>Hibridación con Compo Experience: por componentes y para todas las marcas</td><td>Alcance inicial fijado sin validar la capacidad de los equipos</td><td><span class="badge p3">Sep – Oct 2025 (2 meses)</span></td></tr><tr><td>No se contempló la adopción real del equipo de servicios para entender el funcionamiento de Zara</td><td>Equipo Zara sin recursos dedicados + curva de adopción del equipo externo no planificada</td><td><span class="badge p3">Oct 2025 – Mar 2026 (6 meses)</span></td></tr><tr><td>Entorno de PRE poco fiable + dificultad para crear y testear un bundle de tarjeta regalo</td><td>Tarjeta regalo construida en legacy como si fuera una prenda; PRE es un agujero negro</td><td><span class="badge p3">Enero – hoy</span></td></tr><tr><td>No se contempló el caso de uso de redirigir desde Carrito a un Bundle</td><td>Se obvió que este flujo funcional no era compatible</td><td><span class="badge p3">Feb – Abr 2026 (2 meses)</span></td></tr><tr><td>Una vez lanzado: monitorizar incidencias</td><td>Sin baseline de alertas por mercado</td><td><span class="badge p3">Julio – ahora</span></td></tr></table></div></div><div class="pres-slide " data-section="4"><div class="slide-header"><span class="slide-label">04 · Plan de acción</span><span class="slide-num">05</span></div><div class="slide-body"><h2 class="slide-h2">Plan de acción</h2><table class="decision-table"><tr><th style="width:6%">#</th><th>Acción propuesta</th><th style="width:30%">Responsables</th></tr><tr><td><span class="phase-badge num">01</span></td><td>Checkpoint de capacidad y dedicación de los equipos antes de comprometer fecha</td><td><span class="badge p2">PPM + PO de la vertical + Arquitectura</span></td></tr><tr><td><span class="phase-badge num">02</span></td><td>Reservar capacidad desde el kickoff y plan de onboarding del equipo externo</td><td><span class="badge p2">PPM + PO de la vertical</span></td></tr><tr><td><span class="phase-badge num">03</span></td><td>Plan de saneamiento de PRE y guía de creación y testeo de bundles de tarjeta regalo</td><td><span class="badge p2">Plataforma / QA</span></td></tr><tr><td><span class="phase-badge num">04</span></td><td>Validar la compatibilidad de los flujos funcionales en la fase de discovery</td><td><span class="badge p2">PPM + Arquitectura</span></td></tr><tr><td><span class="phase-badge num">05</span></td><td>Proceso de triaje con trazabilidad de bugs y umbrales de alertas definidos antes del rollout</td><td><span class="badge p2">PPM + PO de la vertical</span></td></tr></table></div></div><div class="pres-slide " data-section="5"><div class="slide-header"><span class="slide-label">05 · Aprendizajes</span><span class="slide-num">06</span></div><div class="slide-body"><h2 class="slide-h2">Qué haríamos distinto</h2><div class="phase-rows"><div class="phase-row"><span class="phase-badge b">01</span><div class="phase-desc" style="font-size:clamp(9px,1.2vw,13px);color:#333">No acoplar el alcance a una hibridación sin una POC</div></div><div class="phase-row"><span class="phase-badge b">02</span><div class="phase-desc" style="font-size:clamp(9px,1.2vw,13px);color:#333">Comprometer una fecha sólo si tenemos el compromiso de los equipos</div></div><div class="phase-row"><span class="phase-badge b">03</span><div class="phase-desc" style="font-size:clamp(9px,1.2vw,13px);color:#333">Exigir un PRE y Bundle tarjeta regalo fiable</div></div><div class="phase-row"><span class="phase-badge b">04</span><div class="phase-desc" style="font-size:clamp(9px,1.2vw,13px);color:#333">Validar la compatibilidad de los flujos funcionales en el discovery</div></div><div class="phase-row"><span class="phase-badge b">05</span><div class="phase-desc" style="font-size:clamp(9px,1.2vw,13px);color:#333">Incorporar baseline de alertado para el rollout por mercado</div></div></div></div></div><div class="pres-slide slide-closing" data-section="6"><div class="slide-header"><span class="slide-label">Cierre</span><span class="slide-num">07</span></div><div class="slide-body"><h1 class="slide-h1">Gracias</h1><div class="closing-divider"></div><p class="slide-p">Postmortem · Tarjeta regalo (giftcard-exp)</p></div></div></div></div><script>let cur=0;const sl=[...document.querySelectorAll('.pres-slide')];
+function show(i){cur=Math.max(0,Math.min(sl.length-1,i));sl.forEach((s,k)=>s.classList.toggle('active',k===cur));
+document.querySelectorAll('.pres-nav-sec').forEach((e,k)=>e.classList.toggle('active',k===+sl[cur].dataset.section));
+document.getElementById('presCounter').textContent=(cur+1)+' / '+sl.length;
+document.getElementById('presBtnPrev').disabled=cur===0;document.getElementById('presBtnNext').disabled=cur===sl.length-1;}
+function presNav(d){show(cur+d)}function presJump(s){show(sl.findIndex(x=>+x.dataset.section===s))}
+function presToggleFullscreen(){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen()}
+document.addEventListener('keydown',e=>{if(['ArrowRight','PageDown',' '].includes(e.key))presNav(1);if(['ArrowLeft','PageUp'].includes(e.key))presNav(-1);if(e.key==='f')presToggleFullscreen()});show(0);</script></body></html>
